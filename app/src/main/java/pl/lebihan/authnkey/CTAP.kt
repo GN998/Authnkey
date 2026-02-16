@@ -24,7 +24,8 @@ data class AuthenticatorData(
     val rpIdHash: ByteArray,
     val flags: Int,
     val signCount: Long,
-    val attestedCredentialData: AttestedCredentialData?
+    val attestedCredentialData: AttestedCredentialData?,
+    val extensions: CborMap?
 ) {
     val userPresent: Boolean
         get() = (flags and CTAP.AUTH_DATA_FLAG_UP) != 0
@@ -51,6 +52,7 @@ data class AuthenticatorData(
 
             var offset = 37
             val hasAt = (flags and CTAP.AUTH_DATA_FLAG_AT) != 0
+            val hasEd = (flags and CTAP.AUTH_DATA_FLAG_ED) != 0
 
             val attestedCredentialData = if (hasAt) {
                 if (data.size < offset + 18) return null
@@ -66,14 +68,21 @@ data class AuthenticatorData(
                 val credentialId = data.sliceArray(offset until offset + credIdLen)
                 offset += credIdLen
 
-                val credentialPublicKey = CborDecoder.decode(
-                    data.sliceArray(offset until data.size)
-                ) as? Map<*, *> ?: return null
+                val remaining = data.sliceArray(offset until data.size)
+                val credentialPublicKey = CborDecoder.decode(remaining) as? Map<*, *> ?: return null
+                // Advance offset past the COSE key
+                val consumed = CborDecoder.measureFirstValue(remaining)
+                offset += consumed
 
                 AttestedCredentialData(aaguid, credentialId, credentialPublicKey)
             } else null
 
-            return AuthenticatorData(rpIdHash, flags, signCount, attestedCredentialData)
+            val extensions = if (hasEd && offset < data.size) {
+                val remaining = data.sliceArray(offset until data.size)
+                CborMap.decode(remaining)
+            } else null
+
+            return AuthenticatorData(rpIdHash, flags, signCount, attestedCredentialData, extensions)
         }
     }
 }

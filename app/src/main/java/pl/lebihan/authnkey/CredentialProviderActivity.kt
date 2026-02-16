@@ -813,6 +813,20 @@ class CredentialProviderActivity : AppCompatActivity() {
             authSelection?.optString("residentKey", "preferred")
         )
 
+        // Parse extensions
+        val extensions = requestJson.optJSONObject("extensions")
+        val credPropsRequested = extensions?.optBoolean("credProps", false) ?: false
+        val prfRequested = extensions?.has("prf") == true
+
+        // Check if authenticator supports hmac-secret (CTAP2 backing for PRF)
+        val authenticatorSupportsHmacSecret = deviceInfo?.extensions?.contains("hmac-secret") == true
+
+        // Build CTAP extensions map
+        val ctapExtensions = mutableMapOf<String, Any>()
+        if (prfRequested && authenticatorSupportsHmacSecret) {
+            ctapExtensions["hmac-secret"] = true
+        }
+
         // Build clientDataJSON with proper origin
         val origin = computeOrigin()
         val clientData = providedClientDataHash.let { hash ->
@@ -847,6 +861,7 @@ class CredentialProviderActivity : AppCompatActivity() {
             excludeList = if (excludeList.isNotEmpty()) excludeList else null,
             requireResidentKey = residentKey.requiresResidentKey(),
             requireUserVerification = false, // UV is provided by pinUvAuthParam
+            extensions = if (ctapExtensions.isNotEmpty()) ctapExtensions else null,
             pinUvAuthParam = pinUvAuthParam,
             pinUvAuthProtocol = if (pinProtocol != null) 1 else null
         )
@@ -876,14 +891,18 @@ class CredentialProviderActivity : AppCompatActivity() {
         val authData = AuthenticatorData.parse(makeCredResult.authData)
         val credentialId = authData?.attestedCredentialData?.credentialId ?: ByteArray(0)
 
-        // Check if credProps extension was requested
-        val extensions = requestJson.optJSONObject("extensions")
-        val credPropsRequested = extensions?.optBoolean("credProps", false) ?: false
-
         // Determine if credential is actually discoverable
         // If we requested rk AND the authenticator supports it AND succeeded, it's discoverable
         val supportsResidentKey = deviceInfo?.options?.get("rk") ?: true
         val isDiscoverable = residentKey.requiresResidentKey() && supportsResidentKey
+
+        // Check if hmac-secret was confirmed in the authenticator's authData extensions
+        val hmacSecretEnabled = if (prfRequested && authenticatorSupportsHmacSecret) {
+            // If the authenticator supports hmac-secret and we requested it,
+            // check if the authData extensions confirm it
+            val extData = authData?.extensions
+            extData?.bool("hmac-secret") ?: true // null means it was accepted without explicit confirmation
+        } else false
 
         // Build response JSON
         val responseJson = JSONObject().apply {
@@ -928,6 +947,11 @@ class CredentialProviderActivity : AppCompatActivity() {
                         put("rk", isDiscoverable)
                     })
                 }
+                if (prfRequested) {
+                    put("prf", JSONObject().apply {
+                        put("enabled", hmacSecretEnabled)
+                    })
+                }
             })
         }
 
@@ -959,6 +983,77 @@ class CredentialProviderActivity : AppCompatActivity() {
             }
         }
 
+        // Parse PRF extension
+        val extensions = requestJson.optJSONObject("extensions")
+        val prfExtension = extensions?.optJSONObject("prf")
+        val prfEval = prfExtension?.optJSONObject("eval")
+        val authenticatorSupportsHmacSecret = deviceInfo?.extensions?.contains("hmac-secret") == true
+        val prfRequested = prfEval != null && authenticatorSupportsHmacSecret
+
+        // Prepare hmac-secret extension for getAssertion if PRF is requested
+        var hmacSecretExtensions: CborRaw? = null
+        var prfHasTwoSalts = false
+        var effectiveProtocol = pinProtocol
+
+        if (prfRequested) {
+            val protocol = pinProtocol ?: this.pinProtocol
+                ?: throw Exception("PIN protocol not available for PRF")
+
+            // Ensure key agreement is initialized (needed for hmac-secret even without PIN)
+            if (!protocol.isInitialized) {
+                val initialized = withContext(Dispatchers.IO) { protocol.initialize() }
+                if (!initialized) {
+                    throw Exception("Failed to initialize key agreement for PRF")
+                }
+            }
+            effectiveProtocol = protocol
+
+            // Extract and convert PRF salts to hmac-secret salts
+            // PRF salt → hmac-secret salt: SHA-256("WebAuthn PRF" || 0x00 || salt)
+            val sha256 = MessageDigest.getInstance("SHA-256")
+            val prfPrefix = "WebAuthn PRF".toByteArray(Charsets.UTF_8)
+
+            val firstSaltRaw = Base64.decode(
+                prfEval!!.getString("first"),
+                Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP
+            )
+            sha256.reset()
+            sha256.update(prfPrefix)
+            sha256.update(0x00.toByte())
+            val salt1 = sha256.digest(firstSaltRaw)
+
+            var salt2: ByteArray? = null
+            if (prfEval.has("second")) {
+                val secondSaltRaw = Base64.decode(
+                    prfEval.getString("second"),
+                    Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP
+                )
+                sha256.reset()
+                sha256.update(prfPrefix)
+                sha256.update(0x00.toByte())
+                salt2 = sha256.digest(secondSaltRaw)
+                prfHasTwoSalts = true
+            }
+
+            // Build hmac-secret extension input
+            val hmacInput = protocol.buildHmacSecretInput(salt1, salt2)
+                ?: throw Exception("Failed to build hmac-secret input")
+
+            // Build the CBOR extensions map: {"hmac-secret": {1: coseKey, 2: saltEnc, 3: saltAuth}}
+            val coseKey = protocol.encodePlatformCoseKeyBytes()
+                ?: throw Exception("Failed to encode platform key")
+
+            hmacSecretExtensions = cbor {
+                map {
+                    "hmac-secret" to map {
+                        1 to coseKey
+                        2 to bytes(hmacInput.saltEnc)
+                        3 to bytes(hmacInput.saltAuth)
+                    }
+                }
+            }.let { CborRaw(it.toList()) }
+        }
+
         // Build clientDataJSON with proper origin
         val origin = computeOrigin()
         val clientData = providedClientDataHash.let { hash ->
@@ -977,8 +1072,8 @@ class CredentialProviderActivity : AppCompatActivity() {
 
         // Compute pinUvAuthParam if needed
         var pinUvAuthParam: ByteArray? = null
-        if (pinProtocol != null) {
-            pinUvAuthParam = pinProtocol.computeAuthParam(clientData.hash)
+        if (effectiveProtocol != null && effectiveProtocol.hasPinToken()) {
+            pinUvAuthParam = effectiveProtocol.computeAuthParam(clientData.hash)
         }
 
         // Build and send command
@@ -987,8 +1082,9 @@ class CredentialProviderActivity : AppCompatActivity() {
             clientDataHash = clientData.hash,
             allowList = if (allowList.isNotEmpty()) allowList else null,
             requireUserVerification = false, // UV is provided by pinUvAuthParam
+            extensions = hmacSecretExtensions,
             pinUvAuthParam = pinUvAuthParam,
-            pinUvAuthProtocol = if (pinProtocol != null) 1 else null
+            pinUvAuthProtocol = if (effectiveProtocol != null && effectiveProtocol.hasPinToken()) 1 else null
         )
 
         runOnUiThread {
@@ -1028,6 +1124,31 @@ class CredentialProviderActivity : AppCompatActivity() {
         val credentialId = selectedAssertion.credential?.id
             ?: if (allowList.isNotEmpty()) allowList[0] else ByteArray(0)
 
+        // Parse PRF results from authenticator data extensions
+        var prfResults: JSONObject? = null
+        if (prfRequested && effectiveProtocol != null) {
+            val authData = AuthenticatorData.parse(selectedAssertion.authData)
+            val hmacSecretOutput = authData?.extensions?.bytes("hmac-secret")
+
+            if (hmacSecretOutput != null) {
+                val decrypted = effectiveProtocol.decryptHmacSecretOutput(hmacSecretOutput)
+                if (decrypted != null) {
+                    prfResults = JSONObject().apply {
+                        val first = decrypted.sliceArray(0 until 32)
+                        put("first", Base64.encodeToString(
+                            first, Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP
+                        ))
+                        if (prfHasTwoSalts && decrypted.size >= 64) {
+                            val second = decrypted.sliceArray(32 until 64)
+                            put("second", Base64.encodeToString(
+                                second, Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP
+                            ))
+                        }
+                    }
+                }
+            }
+        }
+
         // Build response JSON
         val responseJson = JSONObject().apply {
             put("id", Base64.encodeToString(credentialId, Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP))
@@ -1056,7 +1177,13 @@ class CredentialProviderActivity : AppCompatActivity() {
                     ))
                 }
             })
-            put("clientExtensionResults", JSONObject())
+            put("clientExtensionResults", JSONObject().apply {
+                if (prfResults != null) {
+                    put("prf", JSONObject().apply {
+                        put("results", prfResults)
+                    })
+                }
+            })
         }
 
         returnGetResult(responseJson.toString())
