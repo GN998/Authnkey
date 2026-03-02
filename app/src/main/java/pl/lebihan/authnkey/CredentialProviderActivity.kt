@@ -843,7 +843,7 @@ class CredentialProviderActivity : AppCompatActivity() {
         // Build clientDataJSON with proper origin
         val origin = computeOrigin()
         val clientData = providedClientDataHash.let { hash ->
-            if (hash != null && origin.startsWith("https://")) {
+            if (hash != null) { // Del && origin.startsWith("https://")
                 ClientData(null, hash)
             } else {
                 val json = JSONObject().apply {
@@ -1070,7 +1070,7 @@ class CredentialProviderActivity : AppCompatActivity() {
         // Build clientDataJSON with proper origin
         val origin = computeOrigin()
         val clientData = providedClientDataHash.let { hash ->
-            if (hash != null && origin.startsWith("https://")) {
+            if (hash != null) { // Del && origin.startsWith("https://")
                 ClientData(null, hash)
             } else {
                 val json = JSONObject().apply {
