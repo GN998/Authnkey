@@ -216,6 +216,7 @@ class PinProtocol(private val transport: FidoTransport) {
     sealed class PinSetError(message: String) : Exception(message) {
         class PinAlreadySet : PinSetError("A PIN is already set on this authenticator")
         class PinPolicyViolation : PinSetError("PIN does not meet authenticator requirements")
+        class PinTooLong : PinSetError("PIN exceeds maximum allowed length")
         class PinBlocked : PinSetError("PIN is blocked")
         data class Other(val errorName: String) : PinSetError(errorName)
     }
@@ -226,6 +227,9 @@ class PinProtocol(private val transport: FidoTransport) {
 
         try {
             val newPinBytes = newPin.toByteArray(Charsets.UTF_8)
+            if (newPinBytes.size > 63) {
+                return Result.failure(PinSetError.PinTooLong())
+            }
             val newPinPadded = ByteArray(64)
             newPinBytes.copyInto(newPinPadded, 0, 0, newPinBytes.size)
 
@@ -264,6 +268,7 @@ class PinProtocol(private val transport: FidoTransport) {
         class InvalidPin : PinChangeError("Current PIN is incorrect")
         class PinBlocked : PinChangeError("PIN is blocked due to too many incorrect attempts")
         class PinPolicyViolation : PinChangeError("New PIN does not meet authenticator requirements")
+        class PinTooLong : PinChangeError("PIN exceeds maximum allowed length")
         class PinNotSet : PinChangeError("No PIN is set on this authenticator")
         data class Other(val errorName: String) : PinChangeError(errorName)
     }
@@ -279,6 +284,9 @@ class PinProtocol(private val transport: FidoTransport) {
             val currentPinHashLeft16 = currentPinHash.copyOf(16)
 
             val newPinBytes = newPin.toByteArray(Charsets.UTF_8)
+            if (newPinBytes.size > 63) {
+                return Result.failure(PinChangeError.PinTooLong())
+            }
             val newPinPadded = ByteArray(64)
             newPinBytes.copyInto(newPinPadded, 0, 0, newPinBytes.size)
 

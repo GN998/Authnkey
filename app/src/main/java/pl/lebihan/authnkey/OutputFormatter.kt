@@ -273,6 +273,10 @@ class OutputFormatter(private val context: Context) {
             context.getString(R.string.pin_policy_violation_title),
             context.getString(R.string.pin_policy_violation_message)
         )
+        is PinProtocol.PinChangeError.PinTooLong -> status(
+            context.getString(R.string.pin_too_long_title),
+            context.getString(R.string.pin_too_long_message)
+        )
         is PinProtocol.PinChangeError.PinNotSet -> status(
             context.getString(R.string.pin_not_set_title),
             context.getString(R.string.pin_not_set_message)
@@ -305,6 +309,10 @@ class OutputFormatter(private val context: Context) {
         is PinProtocol.PinSetError.PinPolicyViolation -> status(
             context.getString(R.string.pin_policy_violation_title),
             context.getString(R.string.pin_policy_violation_message)
+        )
+        is PinProtocol.PinSetError.PinTooLong -> status(
+            context.getString(R.string.pin_too_long_title),
+            context.getString(R.string.pin_too_long_message)
         )
         is PinProtocol.PinSetError.PinBlocked -> status(
             context.getString(R.string.pin_blocked_title),

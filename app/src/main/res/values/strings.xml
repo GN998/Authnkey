@@ -42,6 +42,8 @@
     <string name="pin_hint_confirm">Confirm new PIN</string>
     <string name="pin_continue">Continue</string>
     <string name="pin_too_short">PIN must be at least %1$d characters</string>
+    <string name="pin_too_long_title">PIN Too Long</string>
+    <string name="pin_too_long_message">PIN exceeds maximum allowed length</string>
     <string name="pin_retries_remaining">Enter PIN (%1$d retries remaining)</string>
     <string name="pin_incorrect_retries">Incorrect PIN. %1$d retries remaining</string>
 
