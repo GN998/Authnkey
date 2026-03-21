@@ -33,6 +33,7 @@ class PinInputField @JvmOverloads constructor(
     private val pinEditText = TextInputEditText(this.context).apply {
         layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT)
         imeOptions = EditorInfo.IME_ACTION_DONE
+        inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
     }
 
     /**
@@ -163,11 +164,13 @@ class PinInputField @JvmOverloads constructor(
             setStartIconDrawable(iconRes)
         }
 
-        pinEditText.inputType = if (useNumericKeyboard) {
-            InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD
-        } else {
-            InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
-        }
+        pinEditText.setRawInputType(
+            if (useNumericKeyboard) {
+                InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD
+            } else {
+                InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+            }
+        )
     }
 
     private fun onKeyboardModeToggled() {
