@@ -216,4 +216,6 @@
     <string name="instruction_waiting_biometric">Приложите палец к сканеру отпечатка на вашем ключе безопасности…</string>
     <string name="error_uv_failed">Не удалось пройти биометрическую проверку</string>
     <string name="error_uv_blocked">Биометрическая проверка заблокирована. Используйте вместо неё ПИН-код.</string>
+    <string name="pin_too_long_title">ПИН-код слишком длинный</string>
+    <string name="pin_too_long_message">Превышена максимальная длина ПИН-кода</string>
 </resources>
