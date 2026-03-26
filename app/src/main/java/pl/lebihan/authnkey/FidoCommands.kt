@@ -4,6 +4,15 @@ import java.security.MessageDigest
 
 object FidoCommands {
 
+    sealed class UvMode {
+        /** No user verification requested. */
+        object None : UvMode()
+        /** Ask the authenticator to perform UV itself. */
+        object BuiltIn : UvMode()
+        /** UV via a pinUvAuth token. */
+        data class AuthToken(val param: ByteArray, val protocol: Int) : UvMode()
+    }
+
     fun buildMakeCredential(
         clientDataHash: ByteArray,
         rpId: String,
@@ -14,10 +23,8 @@ object FidoCommands {
         pubKeyCredParams: List<Pair<String, Int>>,
         excludeList: List<ByteArray>? = null,
         requireResidentKey: Boolean = true,
-        requireUserVerification: Boolean = true,
+        uvMode: UvMode = UvMode.None,
         extensions: Map<String, Any>? = null,
-        pinUvAuthParam: ByteArray? = null,
-        pinUvAuthProtocol: Int? = null
     ): ByteArray {
         val payload = cbor {
             map {
@@ -62,14 +69,14 @@ object FidoCommands {
                     }
                 }
 
-                7 to map { "rk" to requireResidentKey }
-
-                if (pinUvAuthParam != null) {
-                    8 to bytes(pinUvAuthParam)
+                7 to map {
+                    "rk" to requireResidentKey
+                    if (uvMode is UvMode.BuiltIn) "uv" to true
                 }
 
-                if (pinUvAuthProtocol != null) {
-                    9 to pinUvAuthProtocol
+                if (uvMode is UvMode.AuthToken) {
+                    8 to bytes(uvMode.param)
+                    9 to uvMode.protocol
                 }
             }
         }
@@ -81,10 +88,8 @@ object FidoCommands {
         rpId: String,
         clientDataHash: ByteArray,
         allowList: List<ByteArray>? = null,
-        requireUserVerification: Boolean = true,
+        uvMode: UvMode = UvMode.None,
         extensions: CborRaw? = null,
-        pinUvAuthParam: ByteArray? = null,
-        pinUvAuthProtocol: Int? = null
     ): ByteArray {
         val payload = cbor {
             map {
@@ -106,14 +111,14 @@ object FidoCommands {
                     4 to extensions
                 }
 
-                5 to map { "up" to true }
-
-                if (pinUvAuthParam != null) {
-                    6 to bytes(pinUvAuthParam)
+                5 to map {
+                    "up" to true
+                    if (uvMode is UvMode.BuiltIn) "uv" to true
                 }
 
-                if (pinUvAuthProtocol != null) {
-                    7 to pinUvAuthProtocol
+                if (uvMode is UvMode.AuthToken) {
+                    6 to bytes(uvMode.param)
+                    7 to uvMode.protocol
                 }
             }
         }

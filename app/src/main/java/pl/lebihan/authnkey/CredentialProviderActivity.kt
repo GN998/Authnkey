@@ -858,10 +858,14 @@ class CredentialProviderActivity : AppCompatActivity() {
             }
         }
 
-        // Compute pinUvAuthParam if needed
-        var pinUvAuthParam: ByteArray? = null
-        if (pinProtocol != null) {
-            pinUvAuthParam = pinProtocol.computeAuthParam(clientData.hash)
+        // Build UV mode
+        val uvMode = if (pinProtocol != null && pinProtocol.hasPinToken()) {
+            FidoCommands.UvMode.AuthToken(
+                pinProtocol.computeAuthParam(clientData.hash),
+                protocol = 1
+            )
+        } else {
+            FidoCommands.UvMode.None
         }
 
         // Build and send command
@@ -873,12 +877,10 @@ class CredentialProviderActivity : AppCompatActivity() {
             userName = userName,
             userDisplayName = userDisplayName,
             pubKeyCredParams = pubKeyCredParams,
-            excludeList = if (excludeList.isNotEmpty()) excludeList else null,
+            excludeList = excludeList.ifEmpty { null },
             requireResidentKey = residentKey.requiresResidentKey(),
-            requireUserVerification = false, // UV is provided by pinUvAuthParam
-            extensions = if (ctapExtensions.isNotEmpty()) ctapExtensions else null,
-            pinUvAuthParam = pinUvAuthParam,
-            pinUvAuthProtocol = if (pinProtocol != null) 1 else null
+            uvMode = uvMode,
+            extensions = ctapExtensions.ifEmpty { null },
         )
 
         runOnUiThread {
@@ -1085,21 +1087,23 @@ class CredentialProviderActivity : AppCompatActivity() {
             }
         }
 
-        // Compute pinUvAuthParam if needed
-        var pinUvAuthParam: ByteArray? = null
-        if (effectiveProtocol != null && effectiveProtocol.hasPinToken()) {
-            pinUvAuthParam = effectiveProtocol.computeAuthParam(clientData.hash)
+        // Build UV mode
+        val uvMode = if (effectiveProtocol != null && effectiveProtocol.hasPinToken()) {
+            FidoCommands.UvMode.AuthToken(
+                effectiveProtocol.computeAuthParam(clientData.hash),
+                protocol = 1
+            )
+        } else {
+            FidoCommands.UvMode.None
         }
 
         // Build and send command
         val command = FidoCommands.buildGetAssertion(
             rpId = rpId,
             clientDataHash = clientData.hash,
-            allowList = if (allowList.isNotEmpty()) allowList else null,
-            requireUserVerification = false, // UV is provided by pinUvAuthParam
+            allowList = allowList.ifEmpty { null },
+            uvMode = uvMode,
             extensions = hmacSecretExtensions,
-            pinUvAuthParam = pinUvAuthParam,
-            pinUvAuthProtocol = if (effectiveProtocol != null && effectiveProtocol.hasPinToken()) 1 else null
         )
 
         runOnUiThread {

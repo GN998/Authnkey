@@ -329,17 +329,13 @@ class PinProtocol(private val transport: FidoTransport) {
     val isInitialized: Boolean
         get() = sharedSecret != null && platformPublicKey != null
 
-    fun computeAuthParam(message: ByteArray): ByteArray? {
-        val token = pinToken ?: return null
+    fun computeAuthParam(message: ByteArray): ByteArray {
+        val token = pinToken ?: throw IllegalStateException("No pin token")
 
-        try {
-            val mac = Mac.getInstance("HmacSHA256")
-            mac.init(SecretKeySpec(token, "HmacSHA256"))
-            val hmacResult = mac.doFinal(message)
-            return hmacResult.copyOf(16)
-        } catch (e: Exception) {
-            return null
-        }
+        val mac = Mac.getInstance("HmacSHA256")
+        mac.init(SecretKeySpec(token, "HmacSHA256"))
+        val hmacResult = mac.doFinal(message)
+        return hmacResult.copyOf(16)
     }
 
     /**
