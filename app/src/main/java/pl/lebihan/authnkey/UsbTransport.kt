@@ -14,7 +14,8 @@ class UsbTransport private constructor(
     private val connection: UsbDeviceConnection,
     private val hidInterface: UsbInterface,
     private val inEndpoint: UsbEndpoint,
-    private val outEndpoint: UsbEndpoint
+    private val outEndpoint: UsbEndpoint,
+    private val auxiliaryInterfaces: List<UsbInterface>
 ) : FidoTransport {
 
     override val transportType = TransportType.USB
@@ -58,6 +59,7 @@ class UsbTransport private constructor(
         if (!_isConnected || !connection.claimInterface(hidInterface, false)) {
             throw AuthnkeyError.NotConnected()
         }
+        auxiliaryInterfaces.forEach { connection.claimInterface(it, true) }
     }
 
     override suspend fun sendCtapCommand(command: ByteArray): ByteArray = withContext(Dispatchers.IO) {
@@ -203,6 +205,9 @@ class UsbTransport private constructor(
     override fun close() {
         _isConnected = false
         try {
+            auxiliaryInterfaces.forEach {
+                try { connection.releaseInterface(it) } catch (_: Exception) {}
+            }
             connection.releaseInterface(hidInterface)
             connection.close()
         } catch (e: Exception) {
@@ -322,7 +327,15 @@ class UsbTransport private constructor(
                 throw AuthnkeyError.ConnectionFailed()
             }
 
-            val transport = UsbTransport(connection, hidInterface, inEp, outEp)
+            // Claim other HID interfaces (e.g. OTP keyboard) to detach the
+            // kernel input driver and prevent soft keyboard suppression.
+            val auxiliaryInterfaces = (0 until device.interfaceCount)
+                .map { device.getInterface(it) }
+                .filter { it != hidInterface && it.interfaceClass == UsbConstants.USB_CLASS_HID }
+
+            auxiliaryInterfaces.forEach { connection.claimInterface(it, true) }
+
+            val transport = UsbTransport(connection, hidInterface, inEp, outEp, auxiliaryInterfaces)
 
             if (!transport.init()) {
                 transport.close()
