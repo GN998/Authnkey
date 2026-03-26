@@ -35,6 +35,7 @@ import androidx.core.view.updatePadding
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import kotlinx.coroutines.*
+import kotlinx.coroutines.sync.Mutex
 
 class MainActivity : AppCompatActivity() {
 
@@ -71,6 +72,7 @@ class MainActivity : AppCompatActivity() {
     private var biometricDialog: AlertDialog? = null
 
     private var usbPermissionRequested = false
+    private val connectMutex = Mutex()
 
     private val scope = CoroutineScope(Dispatchers.Main + Job())
 
@@ -362,6 +364,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun connectToUsbDevice(device: UsbDevice) {
         scope.launch {
+            if (!connectMutex.tryLock()) return@launch
             try {
                 currentTransport?.close()
                 currentTransport = null
@@ -393,6 +396,8 @@ class MainActivity : AppCompatActivity() {
             } catch (e: Exception) {
                 statusText.text = getString(R.string.usb_error, e.toUserMessage(this@MainActivity))
                 updateConnectionStatus()
+            } finally {
+                connectMutex.unlock()
             }
         }
     }

@@ -30,6 +30,7 @@ import androidx.credentials.provider.ProviderCreateCredentialRequest
 import androidx.credentials.provider.ProviderGetCredentialRequest
 import kotlinx.coroutines.*
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.sync.Mutex
 import org.json.JSONObject
 import java.security.MessageDigest
 
@@ -59,6 +60,7 @@ class CredentialProviderActivity : AppCompatActivity() {
     private var deviceSupportsUv: Boolean = false
 
     private var usbPermissionRequested = false
+    private val connectMutex = Mutex()
 
     private enum class UserVerification {
         REQUIRED,
@@ -450,6 +452,7 @@ class CredentialProviderActivity : AppCompatActivity() {
 
     private fun connectToUsbDevice(device: UsbDevice) {
         scope.launch {
+            if (!connectMutex.tryLock()) return@launch
             try {
                 currentTransport?.close()
 
@@ -477,6 +480,8 @@ class CredentialProviderActivity : AppCompatActivity() {
                 setInstruction(getString(R.string.error_retry_format, e.toUserMessage(this@CredentialProviderActivity)))
                 setState(CredentialBottomSheet.State.ERROR)
                 showProgress(false)
+            } finally {
+                connectMutex.unlock()
             }
         }
     }
