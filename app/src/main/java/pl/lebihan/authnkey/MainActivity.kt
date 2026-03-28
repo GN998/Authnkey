@@ -35,6 +35,7 @@ import androidx.core.view.updatePadding
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import kotlinx.coroutines.*
+import kotlinx.coroutines.sync.Mutex
 
 class MainActivity : AppCompatActivity() {
 
@@ -71,6 +72,7 @@ class MainActivity : AppCompatActivity() {
     private var biometricDialog: AlertDialog? = null
 
     private var usbPermissionRequested = false
+    private val connectMutex = Mutex()
 
     private val scope = CoroutineScope(Dispatchers.Main + Job())
 
@@ -266,11 +268,8 @@ class MainActivity : AppCompatActivity() {
                 currentTransport?.close()
                 currentTransport = null
 
-                val isoDep = IsoDep.get(tag) ?: throw AuthnkeyError.NotIsoDepTag()
-                val transport = NfcTransport(isoDep)
-
-                if (!transport.selectFidoApplet()) {
-                    throw AuthnkeyError.FidoAppletNotFound()
+                val transport = withContext(Dispatchers.IO) {
+                    NfcTransport.connect(tag)
                 }
 
                 currentTransport = transport
@@ -365,6 +364,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun connectToUsbDevice(device: UsbDevice) {
         scope.launch {
+            if (!connectMutex.tryLock()) return@launch
             try {
                 currentTransport?.close()
                 currentTransport = null
@@ -374,8 +374,8 @@ class MainActivity : AppCompatActivity() {
                 statusText.text = getString(R.string.connecting_usb)
 
                 val transport = withContext(Dispatchers.IO) {
-                    UsbTransport.create(usbManager, device)
-                } ?: throw AuthnkeyError.ConnectionFailed()
+                    UsbTransport.connect(usbManager, device)
+                }
 
                 currentTransport = transport
                 pinProtocol = PinProtocol(transport)
@@ -396,6 +396,8 @@ class MainActivity : AppCompatActivity() {
             } catch (e: Exception) {
                 statusText.text = getString(R.string.usb_error, e.toUserMessage(this@MainActivity))
                 updateConnectionStatus()
+            } finally {
+                connectMutex.unlock()
             }
         }
     }

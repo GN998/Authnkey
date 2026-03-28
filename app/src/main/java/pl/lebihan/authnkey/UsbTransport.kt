@@ -10,13 +10,12 @@ import kotlin.random.Random
 /**
  * FIDO transport over USB HID using CTAPHID protocol
  */
-class UsbTransport(
-    private val usbManager: UsbManager,
-    private val device: UsbDevice,
+class UsbTransport private constructor(
     private val connection: UsbDeviceConnection,
     private val hidInterface: UsbInterface,
     private val inEndpoint: UsbEndpoint,
-    private val outEndpoint: UsbEndpoint
+    private val outEndpoint: UsbEndpoint,
+    private val auxiliaryInterfaces: List<UsbInterface>
 ) : FidoTransport {
 
     override val transportType = TransportType.USB
@@ -32,7 +31,7 @@ class UsbTransport(
     /**
      * Initialize CTAPHID channel
      */
-    suspend fun init(): Boolean = withContext(Dispatchers.IO) {
+    private suspend fun init(): Boolean = withContext(Dispatchers.IO) {
         try {
             // Send INIT command to get a channel
             val nonce = ByteArray(8).also { Random.nextBytes(it) }
@@ -60,6 +59,7 @@ class UsbTransport(
         if (!_isConnected || !connection.claimInterface(hidInterface, false)) {
             throw AuthnkeyError.NotConnected()
         }
+        auxiliaryInterfaces.forEach { connection.claimInterface(it, true) }
     }
 
     override suspend fun sendCtapCommand(command: ByteArray): ByteArray = withContext(Dispatchers.IO) {
@@ -205,6 +205,9 @@ class UsbTransport(
     override fun close() {
         _isConnected = false
         try {
+            auxiliaryInterfaces.forEach {
+                try { connection.releaseInterface(it) } catch (_: Exception) {}
+            }
             connection.releaseInterface(hidInterface)
             connection.close()
         } catch (e: Exception) {
@@ -308,25 +311,37 @@ class UsbTransport(
         }
 
         /**
-         * Create a UsbTransport from a USB device
+         * Connect to a FIDO USB device.
+         * Opens the HID interface and initializes the CTAPHID channel.
          */
-        suspend fun create(usbManager: UsbManager, device: UsbDevice): UsbTransport? {
-            val (hidInterface, endpoints) = findFidoInterface(device) ?: return null
+        suspend fun connect(usbManager: UsbManager, device: UsbDevice): UsbTransport {
+            val (hidInterface, endpoints) = findFidoInterface(device)
+                ?: throw AuthnkeyError.ConnectionFailed()
             val (inEp, outEp) = endpoints
 
-            val connection = usbManager.openDevice(device) ?: return null
+            val connection = usbManager.openDevice(device)
+                ?: throw AuthnkeyError.ConnectionFailed()
 
             if (!connection.claimInterface(hidInterface, true)) {
                 connection.close()
-                return null
+                throw AuthnkeyError.ConnectionFailed()
             }
 
-            val transport = UsbTransport(usbManager, device, connection, hidInterface, inEp, outEp)
+            // Claim other HID interfaces (e.g. OTP keyboard) to detach the
+            // kernel input driver and prevent soft keyboard suppression.
+            val auxiliaryInterfaces = (0 until device.interfaceCount)
+                .map { device.getInterface(it) }
+                .filter { it != hidInterface && it.interfaceClass == UsbConstants.USB_CLASS_HID }
 
-            return if (transport.init()) transport else {
+            auxiliaryInterfaces.forEach { connection.claimInterface(it, true) }
+
+            val transport = UsbTransport(connection, hidInterface, inEp, outEp, auxiliaryInterfaces)
+
+            if (!transport.init()) {
                 transport.close()
-                null
+                throw AuthnkeyError.ConnectionFailed()
             }
+            return transport
         }
     }
 }
