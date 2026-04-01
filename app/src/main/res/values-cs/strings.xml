@@ -4,7 +4,7 @@
     <string name="credential_provider_subtitle">Přístupové klíče na hardwarových bezpečnostních klíčích</string>
     <string name="credential_entry_title">Bezpečnostní klíč</string>
     <string name="credential_create_description">Vytvořit přístupový klíč na vašem bezpečnostním klíči pro %1$s</string>
-    <string name="credential_get_description">Použijte svůj bezpečnostní klíč pro %1$s</string>
+    <string name="credential_get_description">Použít bezpečnostní klíč pro %1$s</string>
     <string name="security_key">Bezpečnostní klíč</string>
     <string name="create_passkey">Vytvořit přístupový klíč</string>
     <string name="sign_in">Přihlásit se</string>
