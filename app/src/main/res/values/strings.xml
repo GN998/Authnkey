@@ -206,6 +206,7 @@
     <string name="device_info_section_interfaces">Supported Interfaces</string>
     <string name="device_info_section_algorithms">Supported Algorithms</string>
     <string name="device_info_section_limits">Limits</string>
+    <string name="device_info_section_uv_modality">Supported User Verification Methods</string>
     <string name="device_info_dialog_title">Device Status</string>
 
     <!-- Device Info Option Names -->

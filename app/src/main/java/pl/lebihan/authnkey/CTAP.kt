@@ -99,8 +99,12 @@ data class DeviceInfo(
     val transports: List<String> = emptyList(),
     val algorithms: List<AlgorithmInfo> = emptyList(),
     val firmwareVersion: Int? = null,
-    val minPinLength: Int? = null
+    val minPinLength: Int? = null,
+    val uvModality: Int? = null
 ) {
+    val uvMethods: List<UvModality>
+        get() = uvModality?.let { UvModality.fromMask(it) } ?: emptyList()
+
     val supportsCredMgmt: Boolean
         get() = options["credMgmt"] == true
 
@@ -118,6 +122,25 @@ data class DeviceInfo(
 
     val supportsPinUvAuthToken: Boolean
         get() = options["pinUvAuthToken"] == true
+}
+
+enum class UvModality(val bit: Int, val label: String) {
+    PRESENCE(0x0001, "Presence"),
+    FINGERPRINT(0x0002, "Fingerprint"),
+    PASSCODE_INTERNAL(0x0004, "Internal Passcode"),
+    VOICEPRINT(0x0008, "Voiceprint"),
+    FACEPRINT(0x0010, "Faceprint"),
+    LOCATION(0x0020, "Location"),
+    EYEPRINT(0x0040, "Eyeprint"),
+    PATTERN_INTERNAL(0x0080, "Internal Pattern"),
+    HANDPRINT(0x0100, "Handprint"),
+    PASSCODE_EXTERNAL(0x0800, "External Passcode"),
+    PATTERN_EXTERNAL(0x1000, "External Pattern");
+
+    companion object {
+        fun fromMask(mask: Int): List<UvModality> =
+            entries.filter { mask and it.bit != 0 }
+    }
 }
 
 object CTAP {
@@ -281,6 +304,7 @@ object CTAP {
 
             val minPinLength = parsed.int(13)
             val firmwareVersion = parsed.int(14)
+            val uvModality = parsed.int(18)
 
             Result.success(DeviceInfo(
                 versions = versions,
@@ -294,7 +318,8 @@ object CTAP {
                 transports = transports,
                 algorithms = algorithms,
                 firmwareVersion = firmwareVersion,
-                minPinLength = minPinLength
+                minPinLength = minPinLength,
+                uvModality = uvModality
             ))
         } catch (e: Exception) {
             Result.failure(e)

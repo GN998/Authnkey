@@ -84,6 +84,23 @@
             android:layout_marginBottom="16dp"
             android:orientation="vertical" />
 
+        <!-- UV Modality -->
+        <TextView
+            android:id="@+id/uvModalityLabel"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="4dp"
+            android:text="@string/device_info_section_uv_modality"
+            android:textColor="?android:attr/textColorSecondary"
+            android:textSize="12sp" />
+
+        <com.google.android.material.chip.ChipGroup
+            android:id="@+id/uvModalityChipGroup"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="16dp"
+            app:chipSpacingVertical="0dp" />
+
         <!-- Supported Interfaces -->
         <TextView
             android:id="@+id/interfacesLabel"

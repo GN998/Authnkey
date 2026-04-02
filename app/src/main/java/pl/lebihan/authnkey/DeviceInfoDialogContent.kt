@@ -32,6 +32,8 @@ class DeviceInfoDialogContent(
     private val interfacesChipGroup: ChipGroup = view.findViewById(R.id.interfacesChipGroup)
     private val algorithmsLabel: TextView = view.findViewById(R.id.algorithmsLabel)
     private val algorithmsChipGroup: ChipGroup = view.findViewById(R.id.algorithmsChipGroup)
+    private val uvModalityLabel: TextView = view.findViewById(R.id.uvModalityLabel)
+    private val uvModalityChipGroup: ChipGroup = view.findViewById(R.id.uvModalityChipGroup)
     private val limitsLabel: TextView = view.findViewById(R.id.limitsLabel)
     private val limitsContainer: LinearLayout = view.findViewById(R.id.limitsContainer)
 
@@ -42,6 +44,7 @@ class DeviceInfoDialogContent(
         populateExtensions()
         populateAaguid()
         populateOptions()
+        populateUvModality()
         populateInterfaces()
         populateAlgorithms()
         populateLimits()
@@ -118,6 +121,18 @@ class DeviceInfoDialogContent(
         } else {
             deviceInfo.options.forEach { (key, value) ->
                 addOptionRow(key, value)
+            }
+        }
+    }
+
+    private fun populateUvModality() {
+        val methods = deviceInfo.uvMethods
+        if (methods.isEmpty()) {
+            uvModalityLabel.visibility = View.GONE
+            uvModalityChipGroup.visibility = View.GONE
+        } else {
+            methods.forEach { method ->
+                uvModalityChipGroup.addView(createChip(method.label))
             }
         }
     }
