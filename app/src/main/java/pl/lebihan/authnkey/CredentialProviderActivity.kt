@@ -510,7 +510,7 @@ class CredentialProviderActivity : AppCompatActivity() {
                 val infoResponse = withContext(Dispatchers.IO) {
                     transport.sendCtapCommand(CTAP.buildCommand(CTAP.CMD_GET_INFO))
                 }
-                deviceInfo = CTAP.parseGetInfoStructured(infoResponse)
+                deviceInfo = CTAP.parseGetInfoStructured(infoResponse).getOrThrow()
 
                 // Check if clientPin is actually set on the device
                 val deviceHasPin = deviceInfo?.clientPinSet == true

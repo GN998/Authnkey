@@ -486,11 +486,11 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 val deviceInfo = CTAP.parseGetInfoStructured(response)
-                if (deviceInfo != null) {
+                deviceInfo.onSuccess {
                     resultText.text = ""
-                    showDeviceInfoDialog(deviceInfo)
-                } else {
-                    resultText.text = outputFormatter.formatDeviceInfoError("Failed to parse response")
+                    showDeviceInfoDialog(it)
+                }.onFailure {
+                    resultText.text = outputFormatter.formatDeviceInfoError(it.message ?: "Failed to parse response")
                 }
                 pendingAction = null
 
@@ -529,8 +529,7 @@ class MainActivity : AppCompatActivity() {
                     transport.sendCtapCommand(CTAP.buildCommand(CTAP.CMD_GET_INFO))
                 }
 
-                val deviceInfo = CTAP.parseGetInfoStructured(infoResponse)
-                if (deviceInfo == null) {
+                val deviceInfo = CTAP.parseGetInfoStructured(infoResponse).getOrElse {
                     resultText.text = getString(R.string.error_parse_device_info)
                     pendingAction = null
                     return@launch
@@ -1020,9 +1019,9 @@ class MainActivity : AppCompatActivity() {
                 val infoResponse = withContext(Dispatchers.IO) {
                     transport.sendCtapCommand(CTAP.buildCommand(CTAP.CMD_GET_INFO))
                 }
-                val deviceInfo = CTAP.parseGetInfoStructured(infoResponse)
-                val isPinSet = deviceInfo?.clientPinSet == true
-                val minPinLength = deviceInfo?.minPinLength ?: 4
+                val deviceInfo = CTAP.parseGetInfoStructured(infoResponse).getOrThrow()
+                val isPinSet = deviceInfo.clientPinSet
+                val minPinLength = deviceInfo.minPinLength ?: 4
 
                 val retries = withContext(Dispatchers.IO) { protocol.getPinRetries() }.getOrNull()
 

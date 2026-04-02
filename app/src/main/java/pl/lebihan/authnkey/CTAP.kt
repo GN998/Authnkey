@@ -239,15 +239,18 @@ object CTAP {
         return byteArrayOf(cmd.toByte())
     }
 
-    fun parseGetInfoStructured(response: ByteArray): DeviceInfo? {
+    fun parseGetInfoStructured(response: ByteArray): Result<DeviceInfo> {
         if (!isSuccess(response)) {
-            return null
+            return Result.failure(Exception(
+                getResponseError(response) ?: Error.OTHER
+            ))
         }
 
         val data = response.drop(1).toByteArray()
 
         return try {
-            val parsed = CborMap.decode(data) ?: return null
+            val parsed = CborMap.decode(data)
+                ?: return Result.failure(Exception("Failed to parse GetInfo response"))
 
             val versions = parsed.list<String>(1) ?: emptyList()
             val extensions = parsed.list<String>(2) ?: emptyList()
@@ -279,7 +282,7 @@ object CTAP {
             val minPinLength = parsed.int(13)
             val firmwareVersion = parsed.int(14)
 
-            DeviceInfo(
+            Result.success(DeviceInfo(
                 versions = versions,
                 extensions = extensions,
                 aaguid = aaguid,
@@ -292,9 +295,9 @@ object CTAP {
                 algorithms = algorithms,
                 firmwareVersion = firmwareVersion,
                 minPinLength = minPinLength
-            )
+            ))
         } catch (e: Exception) {
-            null
+            Result.failure(e)
         }
     }
 
