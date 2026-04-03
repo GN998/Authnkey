@@ -199,6 +199,7 @@
     <string name="device_info_section_interfaces">Interfaces prises en charge</string>
     <string name="device_info_section_algorithms">Algorithmes pris en charge</string>
     <string name="device_info_section_limits">Limites</string>
+    <string name="device_info_section_uv_modality">Méthodes de vérification de l\'utilisateur prises en charge</string>
     <string name="device_info_dialog_title">État du périphérique</string>
 
     <!-- Device Info Option Names -->
@@ -210,15 +211,17 @@
     <string name="device_info_option_credMgmt">Gestion des identifiants</string>
     <string name="device_info_option_credentialMgmtPreview">Gestion des identifiants (Aperçu)</string>
     <string name="device_info_option_largeBlobs">Blobs volumineux</string>
-    <string name="device_info_option_pinUvAuthToken">Jeton d\'authentification PIN/UV</string>
+    <string name="device_info_option_pinUvAuthToken">Jeton d\'authentification PIN/vérification de l\'utilisateur</string>
     <string name="device_info_option_authnrCfg">Configuration de l\'authentificateur</string>
+    <string name="device_info_option_uvAcfg">Configuration de l\'authentificateur avec vérification de l\'utilisateur</string>
     <string name="device_info_option_setMinPINLength">Définir la longueur minimale du PIN</string>
-    <string name="device_info_option_makeCredUvNotRqd">Création d\'identifiant sans UV</string>
-    <string name="device_info_option_alwaysUv">Toujours exiger UV</string>
+    <string name="device_info_option_makeCredUvNotRqd">Création d\'identifiant sans exiger la vérification de l\'utilisateur</string>
+    <string name="device_info_option_alwaysUv">Toujours exiger la vérification de l\'utilisateur</string>
     <string name="device_info_option_ep">Attestation d\'entreprise</string>
     <string name="device_info_option_bioEnroll">Inscription biométrique</string>
+    <string name="device_info_option_uvBioEnroll">Inscription biométrique avec vérification de l\'utilisateur</string>
     <string name="device_info_option_userVerificationMgmtPreview">Gestion de la vérification utilisateur (Aperçu)</string>
-    <string name="device_info_option_noMcGaPermissionsWithClientPin">Pas de permissions MC/GA avec PIN client</string>
+    <string name="device_info_option_noMcGaPermissionsWithClientPin">Le code PIN client n\'accorde pas les autorisations de création d\'identifiant/récupération d\'assertion</string>
 
     <!-- Device Info Limit Labels -->
     <string name="device_info_limit_max_msg_size">Taille maximale du message</string>
