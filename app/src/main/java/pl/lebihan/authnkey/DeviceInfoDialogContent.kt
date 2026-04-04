@@ -32,6 +32,8 @@ class DeviceInfoDialogContent(
     private val interfacesChipGroup: ChipGroup = view.findViewById(R.id.interfacesChipGroup)
     private val algorithmsLabel: TextView = view.findViewById(R.id.algorithmsLabel)
     private val algorithmsChipGroup: ChipGroup = view.findViewById(R.id.algorithmsChipGroup)
+    private val uvModalityLabel: TextView = view.findViewById(R.id.uvModalityLabel)
+    private val uvModalityChipGroup: ChipGroup = view.findViewById(R.id.uvModalityChipGroup)
     private val limitsLabel: TextView = view.findViewById(R.id.limitsLabel)
     private val limitsContainer: LinearLayout = view.findViewById(R.id.limitsContainer)
 
@@ -42,6 +44,7 @@ class DeviceInfoDialogContent(
         populateExtensions()
         populateAaguid()
         populateOptions()
+        populateUvModality()
         populateInterfaces()
         populateAlgorithms()
         populateLimits()
@@ -118,6 +121,18 @@ class DeviceInfoDialogContent(
         } else {
             deviceInfo.options.forEach { (key, value) ->
                 addOptionRow(key, value)
+            }
+        }
+    }
+
+    private fun populateUvModality() {
+        val methods = deviceInfo.uvMethods
+        if (methods.isEmpty()) {
+            uvModalityLabel.visibility = View.GONE
+            uvModalityChipGroup.visibility = View.GONE
+        } else {
+            methods.forEach { method ->
+                uvModalityChipGroup.addView(createChip(method.label))
             }
         }
     }
@@ -217,11 +232,13 @@ class DeviceInfoDialogContent(
             "largeBlobs" -> R.string.device_info_option_largeBlobs
             "pinUvAuthToken" -> R.string.device_info_option_pinUvAuthToken
             "authnrCfg" -> R.string.device_info_option_authnrCfg
+            "uvAcfg" -> R.string.device_info_option_uvAcfg
             "setMinPINLength" -> R.string.device_info_option_setMinPINLength
             "makeCredUvNotRqd" -> R.string.device_info_option_makeCredUvNotRqd
             "alwaysUv" -> R.string.device_info_option_alwaysUv
             "ep" -> R.string.device_info_option_ep
             "bioEnroll" -> R.string.device_info_option_bioEnroll
+            "uvBioEnroll" -> R.string.device_info_option_uvBioEnroll
             "userVerificationMgmtPreview" -> R.string.device_info_option_userVerificationMgmtPreview
             "noMcGaPermissionsWithClientPin" -> R.string.device_info_option_noMcGaPermissionsWithClientPin
             else -> return key
