@@ -808,6 +808,8 @@ class CredentialProviderActivity : AppCompatActivity() {
                 executeGetAssertion(transport, requestJson, uvMode)
             }
 
+        } catch (e: CTAP.Exception) {
+            throw e
         } catch (e: Exception) {
             Log.e(TAG, "Execute error", e)
             handleError(e)
