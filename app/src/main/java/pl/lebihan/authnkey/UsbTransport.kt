@@ -19,41 +19,75 @@ class UsbTransport private constructor(
     private val auxiliaryInterfaces: List<UsbInterface>
 ) : FidoTransport {
 
+    sealed class TransportError(message: String) : Exception(message) {
+        class UnsupportedPacketSize(size: Int) :
+            TransportError("Unsupported HID packet size: $size bytes")
+
+        class ProtocolViolation(detail: String) :
+            TransportError("CTAPHID protocol violation: $detail")
+
+        class TransferFailed(detail: String) :
+            TransportError("USB transfer failed: $detail")
+
+        class ResponseTimeout :
+            TransportError("Timed out waiting for a response from the security key")
+
+        class MessageTooLarge(size: Int, limit: Int) :
+            TransportError("Message of $size bytes exceeds the CTAPHID limit of $limit bytes")
+
+        class HidError(code: Int) : TransportError(
+            "CTAPHID error: ${label(code)} (0x${code.toString(16).padStart(2, '0')})"
+        ) {
+            private companion object {
+                fun label(code: Int) = when (code) {
+                    0x01 -> "INVALID_CMD"
+                    0x02 -> "INVALID_PAR"
+                    0x03 -> "INVALID_LEN"
+                    0x04 -> "INVALID_SEQ"
+                    0x05 -> "MSG_TIMEOUT"
+                    0x06 -> "CHANNEL_BUSY"
+                    0x0A -> "LOCK_REQUIRED"
+                    0x0B -> "INVALID_CHANNEL"
+                    0x7F -> "OTHER"
+                    else -> "UNKNOWN"
+                }
+            }
+        }
+    }
+
     override val transportType = TransportType.USB
 
     private var channelId: Int = CID_BROADCAST
+    @Volatile
     private var _isConnected = true
 
     override val isConnected: Boolean
         get() = _isConnected
 
-    private val packetSize = outEndpoint.maxPacketSize.coerceAtLeast(64)
+    private val inPacketSize = inEndpoint.maxPacketSize
+    private val outPacketSize = outEndpoint.maxPacketSize
+
+    private val outMaxMessageSize =
+        minOf(outPacketSize - 7 + 128 * (outPacketSize - 5), 0xFFFF)
 
     /**
-     * Initialize CTAPHID channel
+     * Initialize CTAPHID channel, claiming a channel id from the broadcast channel.
      */
-    private suspend fun init(): Boolean = withContext(Dispatchers.IO) {
-        try {
-            // Send INIT command to get a channel
-            val nonce = ByteArray(8).also { Random.nextBytes(it) }
-            val response = sendRaw(CID_BROADCAST, CMD_INIT, nonce)
+    private suspend fun init() = withContext(Dispatchers.IO) {
+        val nonce = ByteArray(8).also { Random.nextBytes(it) }
+        val response = sendRaw(CID_BROADCAST, CMD_INIT, nonce)
 
-            if (response.size >= 17) {
-                // Verify nonce
-                val receivedNonce = response.sliceArray(0..7)
-                if (!receivedNonce.contentEquals(nonce)) {
-                    throw Exception("Nonce mismatch")
-                }
-
-                // Extract channel ID (bytes 8-11, big endian)
-                channelId = ByteBuffer.wrap(response, 8, 4).order(ByteOrder.BIG_ENDIAN).int
-                true
-            } else {
-                false
-            }
-        } catch (e: Exception) {
-            false
+        if (response.size < 17) {
+            throw TransportError.ProtocolViolation("INIT response is ${response.size} bytes")
         }
+
+        val receivedNonce = response.sliceArray(0..7)
+        if (!receivedNonce.contentEquals(nonce)) {
+            throw TransportError.ProtocolViolation("Nonce mismatch")
+        }
+
+        // Extract channel ID (bytes 8-11, big endian)
+        channelId = ByteBuffer.wrap(response, 8, 4).order(ByteOrder.BIG_ENDIAN).int
     }
 
     override fun reclaimConnection() {
@@ -69,8 +103,12 @@ class UsbTransport private constructor(
     }
 
     private fun sendRaw(cid: Int, cmd: Int, data: ByteArray): ByteArray {
+        if (data.size > outMaxMessageSize) {
+            throw TransportError.MessageTooLarge(data.size, outMaxMessageSize)
+        }
+
         // Build and send initialization packet
-        val initPacket = ByteArray(packetSize)
+        val initPacket = ByteArray(outPacketSize)
         var offset = 0
 
         // Channel ID (4 bytes, big endian)
@@ -87,18 +125,17 @@ class UsbTransport private constructor(
         initPacket[6] = (data.size and 0xFF).toByte()
 
         // Data (up to packetSize - 7 bytes in init packet)
-        val initDataLen = minOf(data.size, packetSize - 7)
+        val initDataLen = minOf(data.size, outPacketSize - 7)
         System.arraycopy(data, 0, initPacket, 7, initDataLen)
         offset = initDataLen
 
         // Send init packet
-        val sent = connection.bulkTransfer(outEndpoint, initPacket, packetSize, TIMEOUT_MS)
-        if (sent < 0) throw Exception("Failed to send init packet")
+        sendPacket(initPacket)
 
         // Send continuation packets if needed
         var seq = 0
         while (offset < data.size) {
-            val contPacket = ByteArray(packetSize)
+            val contPacket = ByteArray(outPacketSize)
 
             // Channel ID
             contPacket[0] = (cid shr 24).toByte()
@@ -111,12 +148,11 @@ class UsbTransport private constructor(
             seq++
 
             // Data
-            val contDataLen = minOf(data.size - offset, packetSize - 5)
+            val contDataLen = minOf(data.size - offset, outPacketSize - 5)
             System.arraycopy(data, offset, contPacket, 5, contDataLen)
             offset += contDataLen
 
-            val contSent = connection.bulkTransfer(outEndpoint, contPacket, packetSize, TIMEOUT_MS)
-            if (contSent < 0) throw Exception("Failed to send continuation packet")
+            sendPacket(contPacket)
         }
 
         // Receive response
@@ -137,17 +173,16 @@ class UsbTransport private constructor(
         while (true) {
             // Check if we've exceeded max wait time
             if (System.currentTimeMillis() - startTime > maxWaitTime) {
-                throw Exception("Timeout waiting for response")
+                throw TransportError.ResponseTimeout()
             }
 
-            val packet = ByteArray(packetSize)
-            val received = connection.bulkTransfer(inEndpoint, packet, packetSize, TIMEOUT_MS)
+            // Timeout on this read, but keep trying if within max wait time
+            val packet = receivePacket() ?: continue
+            val received = packet.size
 
-            if (received < 0) {
-                // Timeout on this read, but keep trying if within max wait time
-                continue
+            if (received < 5) {
+                throw TransportError.ProtocolViolation("Received packet of $received bytes")
             }
-            if (received < 5) continue
 
             // Parse channel ID
             val recvCid = ByteBuffer.wrap(packet, 0, 4).order(ByteOrder.BIG_ENDIAN).int
@@ -163,14 +198,25 @@ class UsbTransport private constructor(
                 continue
             }
 
+            if (cmdOrSeq == (CMD_ERROR or 0x80)) {
+                if (received < 8) {
+                    throw TransportError.ProtocolViolation("ERROR packet carries no error code")
+                }
+                throw TransportError.HidError(packet[7].toInt() and 0xFF)
+            }
+
             if (isFirst) {
                 // Init packet
-                if ((cmdOrSeq and 0x80) == 0) continue
+                if ((cmdOrSeq and 0x80) == 0) {
+                    throw TransportError.ProtocolViolation(
+                        "Continuation packet received before initialization packet"
+                    )
+                }
 
-                // Check for error
-                if (cmdOrSeq == (CMD_ERROR or 0x80)) {
-                    val errorCode = if (received > 7) packet[7] else 0
-                    throw Exception("CTAPHID error: 0x${String.format("%02X", errorCode)}")
+                if (received < 7) {
+                    throw TransportError.ProtocolViolation(
+                        "Received initialization packet of $received bytes"
+                    )
                 }
 
                 expectedLen = ((packet[5].toInt() and 0xFF) shl 8) or (packet[6].toInt() and 0xFF)
@@ -183,8 +229,15 @@ class UsbTransport private constructor(
                 isFirst = false
             } else {
                 // Continuation packet
-                if ((cmdOrSeq and 0x80) != 0) continue
-                if (cmdOrSeq != expectedSeq) continue
+                if ((cmdOrSeq and 0x80) != 0) {
+                    throw TransportError.ProtocolViolation("Unexpected initialization packet")
+                }
+
+                if (cmdOrSeq != expectedSeq) {
+                    throw TransportError.ProtocolViolation(
+                        "Out of order continuation packet: Got seq $cmdOrSeq, expected $expectedSeq"
+                    )
+                }
 
                 expectedSeq++
                 val dataLen = minOf(expectedLen - receivedLen, received - 5)
@@ -201,6 +254,35 @@ class UsbTransport private constructor(
         }
 
         return responseData.toByteArray()
+    }
+
+    /**
+     * Write a single HID packet to the out endpoint. Partial writes are not
+     * supported by CTAPHID, so anything short of the full packet is an error.
+     */
+    private fun sendPacket(packet: ByteArray) {
+        if (!_isConnected) throw AuthnkeyError.NotConnected()
+
+        val sent = connection.bulkTransfer(outEndpoint, packet, packet.size, TIMEOUT_MS)
+        if (sent < 0) {
+            throw TransportError.TransferFailed("Failed to write packet to the out endpoint")
+        }
+        if (sent != packet.size) {
+            throw TransportError.TransferFailed("Wrote $sent of ${packet.size} bytes")
+        }
+    }
+
+    /**
+     * Read a single HID packet from the in endpoint, trimmed to its actual
+     * length, or null if the read failed or nothing arrived within [TIMEOUT_MS].
+     */
+    private fun receivePacket(): ByteArray? {
+        if (!_isConnected) throw AuthnkeyError.NotConnected()
+
+        val packet = ByteArray(inPacketSize)
+        val received = connection.bulkTransfer(inEndpoint, packet, packet.size, TIMEOUT_MS)
+        if (received <= 0) return null
+        return packet.copyOf(received)
     }
 
     override fun close() {
@@ -320,6 +402,12 @@ class UsbTransport private constructor(
                 ?: throw AuthnkeyError.ConnectionFailed()
             val (inEp, outEp) = endpoints
 
+            for (ep in listOf(inEp, outEp)) {
+                if (ep.maxPacketSize < 8) {
+                    throw TransportError.UnsupportedPacketSize(ep.maxPacketSize)
+                }
+            }
+
             val connection = usbManager.openDevice(device)
                 ?: throw AuthnkeyError.ConnectionFailed()
 
@@ -345,9 +433,11 @@ class UsbTransport private constructor(
                 auxiliaryInterfaces = auxiliaryInterfaces,
             )
 
-            if (!transport.init()) {
+            try {
+                transport.init()
+            } catch (e: Exception) {
                 transport.close()
-                throw AuthnkeyError.ConnectionFailed()
+                throw e
             }
             return transport
         }

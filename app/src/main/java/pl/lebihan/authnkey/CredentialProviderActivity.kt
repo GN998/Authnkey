@@ -900,23 +900,32 @@ class CredentialProviderActivity : AppCompatActivity() {
             Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP
         )
 
-        val pubKeyCredParams = mutableListOf<Pair<String, Int>>()
         val paramsArray = requestJson.getJSONArray("pubKeyCredParams")
-        for (i in 0 until paramsArray.length()) {
+        val pubKeyCredParams = List(paramsArray.length()) { i ->
             val param = paramsArray.getJSONObject(i)
-            pubKeyCredParams.add(Pair(param.getString("type"), param.getInt("alg")))
+            Pair(param.getString("type"), param.getInt("alg"))
         }
 
         // Parse excludeCredentials if present
-        val excludeList = mutableListOf<ByteArray>()
-        if (requestJson.has("excludeCredentials")) {
+        val excludeList = if (requestJson.has("excludeCredentials")) {
             val excludeArray = requestJson.getJSONArray("excludeCredentials")
-            for (i in 0 until excludeArray.length()) {
+            List(excludeArray.length()) { i ->
                 val cred = excludeArray.getJSONObject(i)
-                val id = Base64.decode(cred.getString("id"), Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP)
-                excludeList.add(id)
+                FidoCommands.CredentialDescriptor(
+                    type = "public-key",
+                    id = Base64.decode(
+                        cred.getString("id"),
+                        Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP
+                    ),
+                    transports = cred.optJSONArray("transports")?.let { transports ->
+                        List(transports.length()) { transports.optString(it) }
+                            .filter(String::isNotEmpty)
+                            .map(TransportType::of)
+                            .toSet()
+                    } ?: emptySet(),
+                )
             }
-        }
+        } else emptyList()
 
         // Parse authenticatorSelection for residentKey requirement
         val authSelection = requestJson.optJSONObject("authenticatorSelection")
@@ -1017,6 +1026,10 @@ class CredentialProviderActivity : AppCompatActivity() {
             extData?.bool("hmac-secret") ?: true // null means it was accepted without explicit confirmation
         } else false
 
+        // Transports the key advertises, including the one currently in use
+        val transports = setOf(transport.transportType) +
+            ctapSession?.deviceInfo?.transports.orEmpty()
+
         // Build response JSON
         val responseJson = JSONObject().apply {
             put("id", Base64.encodeToString(credentialId, Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP))
@@ -1034,10 +1047,7 @@ class CredentialProviderActivity : AppCompatActivity() {
                     attestationObject,
                     Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP
                 ))
-                // Add transports array based on current transport
-                put("transports", org.json.JSONArray().apply {
-                    put(transport.transportType.webauthnName)
-                })
+                put("transports", org.json.JSONArray(transports.map { it.value }))
                 put("authenticatorData", Base64.encodeToString(
                     makeCredResult.authData,
                     Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP
@@ -1086,15 +1096,25 @@ class CredentialProviderActivity : AppCompatActivity() {
         )
 
         // Parse allowCredentials if present
-        val allowList = mutableListOf<ByteArray>()
-        if (requestJson.has("allowCredentials")) {
+        val allowList = if (requestJson.has("allowCredentials")) {
             val allowArray = requestJson.getJSONArray("allowCredentials")
-            for (i in 0 until allowArray.length()) {
+            List(allowArray.length()) { i ->
                 val cred = allowArray.getJSONObject(i)
-                val id = Base64.decode(cred.getString("id"), Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP)
-                allowList.add(id)
+                FidoCommands.CredentialDescriptor(
+                    type = "public-key",
+                    id = Base64.decode(
+                        cred.getString("id"),
+                        Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP
+                    ),
+                    transports = cred.optJSONArray("transports")?.let { transports ->
+                        List(transports.length()) { transports.optString(it) }
+                            .filter(String::isNotEmpty)
+                            .map(TransportType::of)
+                            .toSet()
+                    } ?: emptySet(),
+                )
             }
-        }
+        } else emptyList()
 
         // Parse PRF extension
         val extensions = requestJson.optJSONObject("extensions")
@@ -1194,11 +1214,22 @@ class CredentialProviderActivity : AppCompatActivity() {
             )
         }
 
+        val maxCredentialCountInList =
+            ctapSession?.deviceInfo?.maxCredentialCountInList ?: Int.MAX_VALUE
+
+        val effectiveAllowList = if (allowList.size > maxCredentialCountInList) {
+            allowList.filterNot { cred ->
+                TransportType.INTERNAL in cred.transports &&
+                        TransportType.USB !in cred.transports &&
+                        TransportType.NFC !in cred.transports
+            }.ifEmpty { allowList }
+        } else allowList
+
         // Build and send command
         val command = FidoCommands.buildGetAssertion(
             rpId = rpId,
             clientDataHash = clientData.hash,
-            allowList = allowList.ifEmpty { null },
+            allowList = effectiveAllowList.ifEmpty { null },
             uvMode = fidoUvMode,
             extensions = hmacSecretExtensions,
         )
@@ -1236,9 +1267,9 @@ class CredentialProviderActivity : AppCompatActivity() {
             firstAssertion
         }
 
-        // Get credential ID from response or allowList
+        // Get credential ID from response or effectiveAllowList
         val credentialId = selectedAssertion.credential?.id
-            ?: if (allowList.isNotEmpty()) allowList[0] else ByteArray(0)
+            ?: if (effectiveAllowList.isNotEmpty()) effectiveAllowList[0].id else ByteArray(0)
 
         // Parse PRF results from authenticator data extensions
         var prfResults: JSONObject? = null

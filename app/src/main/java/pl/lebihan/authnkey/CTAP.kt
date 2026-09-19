@@ -1,12 +1,26 @@
 package pl.lebihan.authnkey
 
+/** An authenticator model identifier. */
+@JvmInline
+value class Aaguid(val bytes: ByteArray) {
+
+    /** Canonical hyphenated form, or plain hex if it is not 16 bytes long. */
+    override fun toString(): String {
+        val hex = bytes.toHex().lowercase()
+        if (bytes.size != 16) return hex
+
+        return "${hex.substring(0, 8)}-${hex.substring(8, 12)}-${hex.substring(12, 16)}-" +
+            "${hex.substring(16, 20)}-${hex.substring(20)}"
+    }
+}
+
 data class AlgorithmInfo(
     val type: String?,
-    val alg: Int?
+    val alg: CoseAlgorithm?
 )
 
 data class AttestedCredentialData(
-    val aaguid: ByteArray,
+    val aaguid: Aaguid,
     val credentialId: ByteArray,
     val credentialPublicKey: Map<*, *>
 ) {
@@ -57,7 +71,7 @@ data class AuthenticatorData(
             val attestedCredentialData = if (hasAt) {
                 if (data.size < offset + 18) return null
 
-                val aaguid = data.sliceArray(offset until offset + 16)
+                val aaguid = Aaguid(data.sliceArray(offset until offset + 16))
                 offset += 16
 
                 val credIdLen = ((data[offset].toInt() and 0xFF) shl 8) or
@@ -90,13 +104,13 @@ data class AuthenticatorData(
 data class DeviceInfo(
     val versions: List<String> = emptyList(),
     val extensions: List<String> = emptyList(),
-    val aaguid: ByteArray? = null,
+    val aaguid: Aaguid? = null,
     val options: Map<String, Boolean> = emptyMap(),
     val maxMsgSize: Int? = null,
     val pinUvAuthProtocols: List<Int> = emptyList(),
     val maxCredentialCountInList: Int? = null,
     val maxCredentialIdLength: Int? = null,
-    val transports: List<String> = emptyList(),
+    val transports: Set<TransportType> = emptySet(),
     val algorithms: List<AlgorithmInfo> = emptyList(),
     val firmwareVersion: Int? = null,
     val minPinLength: Int? = null,
@@ -280,7 +294,7 @@ object CTAP {
 
             val versions = parsed.list<String>(1) ?: emptyList()
             val extensions = parsed.list<String>(2) ?: emptyList()
-            val aaguid = parsed.bytes(3)
+            val aaguid = parsed.bytes(3)?.let(::Aaguid)
 
             val options = mutableMapOf<String, Boolean>()
             parsed.map(4)?.let { opts ->
@@ -296,12 +310,15 @@ object CTAP {
             val pinUvAuthProtocols = parsed.list<Long>(6)?.map { it.toInt() } ?: emptyList()
             val maxCredentialCountInList = parsed.int(7)
             val maxCredentialIdLength = parsed.int(8)
-            val transports = parsed.list<String>(9) ?: emptyList()
+            val transports = parsed.list<Any?>(9).orEmpty()
+                .filterIsInstance<String>()
+                .map(TransportType::of)
+                .toSet()
 
             val algorithms = parsed.mapList(10)?.mapNotNull { alg ->
                 AlgorithmInfo(
                     type = alg.string("type"),
-                    alg = alg.int("alg")
+                    alg = alg.int("alg")?.let(::CoseAlgorithm)
                 )
             } ?: emptyList()
 

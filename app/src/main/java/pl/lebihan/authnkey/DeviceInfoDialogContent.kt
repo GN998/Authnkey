@@ -82,7 +82,7 @@ class DeviceInfoDialogContent(
             aaguidLabel.visibility = View.GONE
             aaguidValue.visibility = View.GONE
         } else {
-            aaguidValue.text = formatAaguid(aaguid)
+            aaguidValue.text = aaguid.toString()
             aaguidValue.setOnLongClickListener { v ->
                 activeActionMode = v.startActionMode(object : ActionMode.Callback {
                     override fun onCreateActionMode(mode: ActionMode, menu: Menu): Boolean {
@@ -143,7 +143,7 @@ class DeviceInfoDialogContent(
             interfacesChipGroup.visibility = View.GONE
         } else {
             deviceInfo.transports.forEach { transport ->
-                interfacesChipGroup.addView(createChip(transport.uppercase()))
+                interfacesChipGroup.addView(createChip(transport.value.uppercase()))
             }
         }
     }
@@ -154,8 +154,8 @@ class DeviceInfoDialogContent(
             algorithmsChipGroup.visibility = View.GONE
         } else {
             deviceInfo.algorithms.forEach { alg ->
-                alg.alg?.let { 
-                    algorithmsChipGroup.addView(createChip(getAlgorithmName(it)))
+                alg.alg?.let {
+                    algorithmsChipGroup.addView(createChip(it.name ?: it.id.toString()))
                 }
             }
         }
@@ -244,28 +244,5 @@ class DeviceInfoDialogContent(
             else -> return key
         }
         return context.getString(resId)
-    }
-
-    private fun getAlgorithmName(alg: Int): String {
-        return when (alg) {
-            -7 -> "ES256"
-            -8 -> "EdDSA"
-            -35 -> "ES384"
-            -36 -> "ES512"
-            -37 -> "PS256"
-            -38 -> "PS384"
-            -39 -> "PS512"
-            -257 -> "RS256"
-            -258 -> "RS384"
-            -259 -> "RS512"
-            else -> alg.toString()
-        }
-    }
-
-    private fun formatAaguid(aaguid: ByteArray): String {
-        if (aaguid.size != 16) return aaguid.joinToString("") { "%02x".format(it) }
-
-        val hex = aaguid.joinToString("") { "%02x".format(it) }
-        return "${hex.substring(0, 8)}-${hex.substring(8, 12)}-${hex.substring(12, 16)}-${hex.substring(16, 20)}-${hex.substring(20)}"
     }
 }

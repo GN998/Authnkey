@@ -3,6 +3,8 @@ package pl.lebihan.authnkey
 import android.animation.ObjectAnimator
 import android.app.PendingIntent
 import android.content.BroadcastReceiver
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -67,6 +69,9 @@ class MainActivity : AppCompatActivity() {
     // Credentials dialog state
     private var credentialsDialog: AlertDialog? = null
     private var credentialsContent: CredentialsDialogContent? = null
+
+    // Credential listing progress overlay
+    private var credentialProgress: CredentialProgressDialog? = null
 
     // On-device UV state for credential listing flow
     private var credListDeviceSupportsUv: Boolean = false
@@ -566,11 +571,22 @@ class MainActivity : AppCompatActivity() {
     private fun showDeviceInfoDialog(deviceInfo: DeviceInfo) {
         val content = DeviceInfoDialogContent(this, deviceInfo)
 
-        MaterialAlertDialogBuilder(this)
+        val dialog = MaterialAlertDialogBuilder(this)
             .setTitle(R.string.device_info_dialog_title)
             .setView(content.view)
+            .setNeutralButton(android.R.string.copy, null)
             .setPositiveButton(R.string.close, null)
-            .show()
+            .create()
+
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
+                val clipboard = getSystemService(ClipboardManager::class.java)
+                val label = getString(R.string.device_info_dialog_title)
+                clipboard.setPrimaryClip(ClipData.newPlainText(label, deviceInfo.dump()))
+            }
+        }
+
+        dialog.show()
     }
 
     private fun listCredentials() {
@@ -812,81 +828,106 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        resultText.text = outputFormatter.formatMetadataSection(metadata)
-
         if (metadata.existingResidentCredentialsCount == 0) {
             resultText.text = outputFormatter.formatNoCredentials(metadata)
             pendingAction = null
             return
         }
 
-        resultText.text = getString(R.string.enumerating_rps)
-        val rpsResult = withContext(Dispatchers.IO) { credMgmt.enumerateRelyingParties() }
+        resultText.text = ""
+        showCredentialProgress(getString(R.string.enumerating_rps))
 
-        val relyingParties = rpsResult.getOrElse {
-            if (isNfcDisconnected()) {
-                showNfcReconnectDialog()
-            } else {
-                resultText.text = outputFormatter.formatEnumerateRpsError(metadata, it.toUserMessage(this@MainActivity))
-                pendingAction = null
-            }
-            return
-        }
+        try {
+            val rpsResult = withContext(Dispatchers.IO) { credMgmt.enumerateRelyingParties() }
 
-        if (relyingParties.isEmpty()) {
-            resultText.text = outputFormatter.formatNoRelyingParties(metadata)
-            pendingAction = null
-            return
-        }
-
-        val rpsWithCredentials = mutableListOf<OutputFormatter.RelyingPartyWithCredentials>()
-
-        for (rp in relyingParties) {
-            resultText.text = getString(R.string.loading_credentials_for, rp.rpId ?: "RP")
-
-            val credsResult = withContext(Dispatchers.IO) {
-                credMgmt.enumerateCredentials(rp.rpIdHash)
-            }
-
-            if (credsResult.isFailure) {
+            val relyingParties = rpsResult.getOrElse {
+                dismissCredentialProgress()
                 if (isNfcDisconnected()) {
                     showNfcReconnectDialog()
+                } else {
+                    resultText.text = outputFormatter.formatEnumerateRpsError(metadata, it.toUserMessage(this@MainActivity))
+                    pendingAction = null
+                }
+                return
+            }
+
+            if (relyingParties.isEmpty()) {
+                dismissCredentialProgress()
+                resultText.text = outputFormatter.formatNoRelyingParties(metadata)
+                pendingAction = null
+                return
+            }
+
+            val rpsWithCredentials = mutableListOf<OutputFormatter.RelyingPartyWithCredentials>()
+
+            for ((index, rp) in relyingParties.withIndex()) {
+                credentialProgress?.update(
+                    getString(R.string.loading_credentials_for, rp.rpId ?: "RP"),
+                    getString(R.string.credential_progress_rp_count, index + 1, relyingParties.size)
+                )
+
+                val credsResult = withContext(Dispatchers.IO) {
+                    credMgmt.enumerateCredentials(rp.rpIdHash)
+                }
+
+                val credentials = credsResult.getOrElse {
+                    dismissCredentialProgress()
+                    if (isNfcDisconnected()) {
+                        showNfcReconnectDialog()
+                    } else {
+                        resultText.text = getString(
+                            R.string.error_enumerate_credentials,
+                            rp.rpId ?: rp.rpIdHash.toHex(),
+                            it.toUserMessage(this@MainActivity)
+                        )
+                        pendingAction = null
+                    }
                     return
                 }
+
                 rpsWithCredentials.add(
                     OutputFormatter.RelyingPartyWithCredentials(
                         relyingParty = rp,
-                        credentials = null,
-                        error = credsResult.exceptionOrNull()?.toUserMessage(this@MainActivity)
-                    )
-                )
-            } else {
-                rpsWithCredentials.add(
-                    OutputFormatter.RelyingPartyWithCredentials(
-                        relyingParty = rp,
-                        credentials = credsResult.getOrThrow(),
+                        credentials = credentials,
                         error = null
                     )
                 )
             }
-        }
 
-        val credentialItems = withContext(Dispatchers.IO) {
-            val psl = PublicSuffixes.get(this@MainActivity)
-            rpsWithCredentials.flatMap { rpWithCreds ->
-                rpWithCreds.credentials?.map { cred ->
-                    CredentialItem(
-                        rpId = rpWithCreds.relyingParty.rpId
-                            ?: rpWithCreds.relyingParty.rpIdHash.toHex(),
-                        credential = cred
-                    )
-                } ?: emptyList()
-            }.sortedByRegistrableDomain(psl)
-        }
+            val credentialItems = withContext(Dispatchers.IO) {
+                val psl = PublicSuffixes.get(this@MainActivity)
+                rpsWithCredentials.flatMap { rpWithCreds ->
+                    rpWithCreds.credentials?.map { cred ->
+                        CredentialItem(
+                            rpId = rpWithCreds.relyingParty.rpId
+                                ?: rpWithCreds.relyingParty.rpIdHash.toHex(),
+                            credential = cred
+                        )
+                    } ?: emptyList()
+                }.sortedByRegistrableDomain(psl)
+            }
 
-        showCredentialsDialog(metadata, credentialItems)
-        resultText.text = ""
-        pendingAction = null
+            dismissCredentialProgress()
+            showCredentialsDialog(metadata, credentialItems)
+            resultText.text = ""
+            pendingAction = null
+        } finally {
+            dismissCredentialProgress()
+        }
+    }
+
+    private fun showCredentialProgress(initialStatus: String) {
+        credentialProgress?.dismiss()
+        credentialProgress = CredentialProgressDialog(
+            context = this,
+            initialStatus = initialStatus,
+            showNfcHint = currentTransport?.transportType == TransportType.NFC
+        ).also { it.show() }
+    }
+
+    private fun dismissCredentialProgress() {
+        credentialProgress?.dismiss()
+        credentialProgress = null
     }
 
     private fun showBiometricWaitingDialog() {

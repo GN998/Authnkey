@@ -69,6 +69,7 @@
     <string name="error_generic">Error: %1$s</string>
     <string name="error_generic_with_trace">Error: %1$s\n\n%2$s</string>
     <string name="error_metadata">Error getting metadata: %1$s</string>
+    <string name="error_enumerate_credentials">Failed to load credentials for %1$s: %2$s</string>
     <string name="error_pins_dont_match">New PINs don\'t match</string>
     <string name="error_uv_required_no_pin">Verification required but no PIN is set on your security key</string>
     <string name="error_pin_not_supported_for_operation">Verification required but PIN cannot be used for this operation</string>
@@ -131,6 +132,9 @@
     <string name="getting_metadata">Getting credential metadata…</string>
     <string name="enumerating_rps">Enumerating relying parties…</string>
     <string name="loading_credentials_for">Loading credentials for %1$s…</string>
+    <string name="credential_progress_title">Reading Credentials</string>
+    <string name="credential_progress_rp_count">Site %1$d of %2$d</string>
+    <string name="credential_progress_hold_key">Keep your security key against the back of your phone.</string>
     <string name="checking_pin_status">Checking PIN status…</string>
     <string name="pin_retries_status">PIN retries remaining: %1$d</string>
     <string name="change_pin_title">Change PIN</string>
@@ -190,22 +194,7 @@
     <string name="credential_error_loading">Error: %1$s</string>
     
     <!-- Device Info -->
-    <string name="device_info_title">Device Info</string>
     <string name="device_info_error">Error: %1$s</string>
-    <string name="device_info_versions">Versions: %1$s</string>
-    <string name="device_info_extensions">Extensions: %1$s</string>
-    <string name="device_info_aaguid">AAGUID: %1$s</string>
-    <string name="device_info_options">Options:</string>
-    <string name="device_info_option_item">  %1$s: %2$s</string>
-    <string name="device_info_max_msg_size">Max Message Size: %1$d</string>
-    <string name="device_info_pin_protocols">PIN/UV Auth Protocols: %1$s</string>
-    <string name="device_info_max_creds_in_list">Max Credentials in List: %1$d</string>
-    <string name="device_info_max_cred_id_length">Max Credential ID Length: %1$d</string>
-    <string name="device_info_transports">Transports: %1$s</string>
-    <string name="device_info_algorithms">Supported Algorithms:</string>
-    <string name="device_info_algorithm_item">  Type: %1$s, Algorithm: %2$s</string>
-    <string name="device_info_min_pin_length">Min PIN Length: %1$d</string>
-    <string name="device_info_firmware">Firmware Version: %1$d</string>
 
     <!-- Device Info Dialog Sections -->
     <string name="device_info_section_versions">Versions</string>
