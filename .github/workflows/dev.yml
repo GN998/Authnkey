@@ -3,11 +3,19 @@ name: Android CI Build
 on:
   push:
     branches: [ "main" ]
-    paths-ignore: 
+    paths-ignore:
       - '**.md'
       - 'docs/**'
   pull_request:
     branches: [ "main" ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -15,14 +23,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
-    env:
-      # Force Node 24 for older actions
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
     steps:
-      # ==========================================
-      # 1. Environment Setup
-      # ==========================================
       - name: Checkout repository
         uses: actions/checkout@v6
 
@@ -35,40 +36,37 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v5
         with:
-          # Read-only cache for PRs
           cache-read-only: ${{ github.event_name == 'pull_request' }}
 
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
-      # ==========================================
-      # 3. Build Process
-      # ==========================================
       - name: Build Release APK
         run: ./gradlew assembleRelease --stacktrace --parallel --build-cache --no-daemon
 
-      # ==========================================
-      # 4. CI-based APK Signing
-      # ==========================================
       - name: Sign APK
-        uses: ilharp/sign-android-release@v2
-        id: sign_app 
-        with:
-          releaseDir: app/build/outputs/apk/release
-          signingKey: ${{ secrets.KEYSTORE_BASE64 }}
-          keyAlias: ${{ secrets.KEY_ALIAS }}
-          keyStorePassword: ${{ secrets.STORE_PASSWORD }}
-          keyPassword: ${{ secrets.KEY_PASSWORD }}
-          buildToolsVersion: "34.0.0"
+        if: github.event_name != 'pull_request'
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          BUILD_TOOLS="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -n 1)"
+          echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+          "$BUILD_TOOLS/apksigner" sign \
+            --ks "$RUNNER_TEMP/release.jks" \
+            --ks-key-alias "$KEY_ALIAS" \
+            --ks-pass env:STORE_PASSWORD \
+            --key-pass env:KEY_PASSWORD \
+            --out app/build/outputs/apk/release/app-release.apk \
+            app/build/outputs/apk/release/app-release-unsigned.apk
 
-      # ==========================================
-      # 5. Artifact Upload
-      # ==========================================
       - name: Upload Release APK
+        if: github.event_name != 'pull_request'
         uses: actions/upload-artifact@v7
         with:
           name: Authnkey-release-apk
-          # Fetch signed APK path dynamically
-          path: ${{ steps.sign_app.outputs.signedFile }}
+          path: app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
           retention-days: 7
