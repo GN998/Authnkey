@@ -74,7 +74,7 @@ class MainActivity : AppCompatActivity() {
     private var credentialProgress: CredentialProgressDialog? = null
 
     // On-device UV state for credential listing flow
-    private var credListDeviceSupportsUv: Boolean = false
+    private var credListCanUseUv: Boolean = false
     private var credListDeviceHasPin: Boolean = false
     private var biometricDialog: AlertDialog? = null
 
@@ -196,6 +196,12 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        dismissBiometricDialog()
+        dismissCredentialProgress()
+        reconnectDialog?.dismiss()
+        reconnectDialog = null
+        credentialsDialog?.dismiss()
+        credentialsDialog = null
         super.onDestroy()
         try {
             unregisterReceiver(usbPermissionReceiver)
@@ -346,6 +352,7 @@ class MainActivity : AppCompatActivity() {
                 }
 
             } catch (e: Exception) {
+                ensureActive()
                 statusText.text = getString(R.string.nfc_error, e.toUserMessage(this@MainActivity))
                 updateConnectionStatus()
             }
@@ -444,6 +451,7 @@ class MainActivity : AppCompatActivity() {
                 statusText.text = getString(R.string.security_key_detected)
 
             } catch (e: Exception) {
+                ensureActive()
                 statusText.text = getString(R.string.usb_error, e.toUserMessage(this@MainActivity))
                 updateConnectionStatus()
             } finally {
@@ -557,6 +565,7 @@ class MainActivity : AppCompatActivity() {
                 pendingAction = null
 
             } catch (e: Exception) {
+                ensureActive()
                 if (isNfcDisconnected()) {
                     showNfcReconnectDialog()
                 } else {
@@ -619,20 +628,20 @@ class MainActivity : AppCompatActivity() {
 
                 val protocol = pinProtocol ?: throw AuthnkeyError.PinProtocolNotInitialized()
                 val deviceHasPin = deviceInfo.clientPinSet
-                val deviceSupportsUv = deviceInfo.supportsBuiltInUv
+                val canListWithUv = deviceInfo.supportsBuiltInUv && deviceInfo.supportsPinUvAuthToken
 
-                credListDeviceSupportsUv = deviceSupportsUv
+                credListCanUseUv = canListWithUv
                 credListDeviceHasPin = deviceHasPin
 
                 pendingAction = null
 
                 when {
                     // Device supports UV but no PIN set -> go straight to UV
-                    deviceSupportsUv && !deviceHasPin -> {
+                    canListWithUv && !deviceHasPin -> {
                         authenticateWithUvAndListCredentials(deviceInfo.usePreviewCommand)
                     }
                     // Device supports both UV and PIN -> show PIN dialog with biometric option
-                    deviceSupportsUv && deviceHasPin -> {
+                    canListWithUv && deviceHasPin -> {
                         val retries = withContext(Dispatchers.IO) { protocol.getPinRetries() }.getOrElse { e ->
                             if (e is java.io.IOException) throw e
                             resultText.text = e.toUserMessage(this@MainActivity)
@@ -665,6 +674,7 @@ class MainActivity : AppCompatActivity() {
                 }
 
             } catch (e: Exception) {
+                ensureActive()
                 if (isNfcDisconnected()) {
                     showNfcReconnectDialog()
                 } else {
@@ -795,6 +805,7 @@ class MainActivity : AppCompatActivity() {
                 enumerateAndShowCredentials(authToken, usePreviewCommand)
 
             } catch (e: Exception) {
+                ensureActive()
                 if (isNfcDisconnected()) {
                     showNfcReconnectDialog()
                 } else {
@@ -1020,7 +1031,7 @@ class MainActivity : AppCompatActivity() {
                                     showPinDialogForCredentialsFallback(
                                         usePreviewCommand,
                                         getString(R.string.error_operation_denied),
-                                        showBiometric = credListDeviceSupportsUv
+                                        showBiometric = credListCanUseUv
                                     )
                                 } else {
                                     resultText.text = getString(R.string.error_operation_denied)
@@ -1031,7 +1042,7 @@ class MainActivity : AppCompatActivity() {
                             CTAP.Error.INVALID_SUBCOMMAND,
                             CTAP.Error.INVALID_COMMAND,
                             CTAP.Error.INVALID_PARAMETER -> {
-                                credListDeviceSupportsUv = false
+                                credListCanUseUv = false
                                 fallbackToPinAfterUvFailureForCredentials(usePreviewCommand)
                                 return@launch
                             }
@@ -1047,6 +1058,7 @@ class MainActivity : AppCompatActivity() {
                 enumerateAndShowCredentials(authToken, usePreviewCommand)
 
             } catch (e: Exception) {
+                ensureActive()
                 dismissBiometricDialog()
                 if (isNfcDisconnected()) {
                     showNfcReconnectDialog()
@@ -1081,6 +1093,7 @@ class MainActivity : AppCompatActivity() {
                     showPinDialogForCredentials(retries, usePreviewCommand)
                 }
             } catch (e: Exception) {
+                ensureActive()
                 resultText.text = e.toUserMessage(this@MainActivity)
                 pendingAction = null
             }
@@ -1136,6 +1149,7 @@ class MainActivity : AppCompatActivity() {
                 }
 
             } catch (e: Exception) {
+                ensureActive()
                 if (isNfcDisconnected()) {
                     showNfcReconnectDialog()
                 } else {
@@ -1299,6 +1313,7 @@ class MainActivity : AppCompatActivity() {
                 )
 
             } catch (e: Exception) {
+                ensureActive()
                 if (isNfcDisconnected()) {
                     showNfcReconnectDialog()
                 } else {
@@ -1353,6 +1368,7 @@ class MainActivity : AppCompatActivity() {
                 )
 
             } catch (e: Exception) {
+                ensureActive()
                 if (isNfcDisconnected()) {
                     showNfcReconnectDialog()
                 } else {
@@ -1425,6 +1441,7 @@ class MainActivity : AppCompatActivity() {
                     }
                 )
             } catch (e: Exception) {
+                ensureActive()
                 if (isNfcDisconnected()) {
                     credentialsDialog?.dismiss()
                     showNfcReconnectDialog()
